@@ -1,4 +1,4 @@
-# Dangerous_Dave_UI
+# Dashing_Rock_UI
 Smoother Controls and Physics
 •	You can control how high you jump by how long you hold the jump button.
 •	You can steer your character slightly while in the air to land exactly where you want.
