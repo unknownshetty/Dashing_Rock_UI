@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dangerous Dave: Reloaded</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background: #0d0f17;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  #game-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    background: #181c2b;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    border: 1px solid #2d3748;
+  }
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    width: 800px;
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: #0f131f;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid #232d42;
+  }
+  .hud-val { color: #38bdf8; }
+  canvas {
+    background: #05070d;
+    border-radius: 6px;
+    border: 2px solid #232d42;
+    image-rendering: pixelated;
+  }
+  #char-select {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .char-btn {
+    background: #1e293b;
+    color: #94a3b8;
+    border: 2px solid #334155;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s ease;
+  }
+  .char-btn:hover { background: #334155; color: #fff; }
+  .char-btn.active {
+    background: #0284c7;
+    color: #fff;
+    border-color: #38bdf8;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+  }
+  .instructions {
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="game-wrapper">
+  <div id="hud">
+    <div>Level: <span id="hud-level" class="hud-val">1</span></div>
+    <div>Score: <span id="hud-score" class="hud-val">0</span></div>
+    <div>Trophy: <span id="hud-trophy" class="hud-val">NO</span></div>
+    <div>Lives: <span id="hud-lives" class="hud-val">3</span></div>
+  </div>
+
+  <canvas id="gameCanvas" width="800" height="480"></canvas>
+
+  <div id="char-select">
+    <button class="char-btn active" onclick="selectHero(0)">Classic Dave (Balanced)</button>
+    <button class="char-btn" onclick="selectHero(1)">Recon Roxy (Agile Double-Jump)</button>
+    <button class="char-btn" onclick="selectHero(2)">Tank Bruno (Heavy Stomp & Resist)</button>
+  </div>
+
+  <div class="instructions">
+    Controls: <b>A / D</b> or <b>Left / Right</b> to Move &bull; <b>W</b>, <b>Up</b>, or <b>Space</b> to Jump &bull; Collect the Goblet and reach the Door!
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const TILE_SIZE = 32;
+const GRAVITY = 1100;
+
+// Character roster
+const HEROES = [
+  { id: 0, name: "Classic Dave", color: "#e11d48", hatColor: "#2563eb", speed: 220, jumpForce: 450, doubleJump: false, maxJumps: 1, hazardResist: false },
+  { id: 1, name: "Recon Roxy", color: "#ec4899", hatColor: "#a855f7", speed: 260, jumpForce: 410, doubleJump: true, maxJumps: 2, hazardResist: false },
+  { id: 2, name: "Tank Bruno", color: "#d97706", hatColor: "#475569", speed: 175, jumpForce: 470, doubleJump: false, maxJumps: 1, hazardResist: true }
+];
+
+let selectedHeroIndex = 0;
+
+// 3 Full Levels (15 rows x 25 cols each)
+// 0: Empty, 1: Solid Brick, 2: Hazard (Spikes/Lava), 3: Trophy Cup, 4: Exit Door, 5: Ruby/Gem (+100)
+const LEVEL_DATA = [
+  // Level 1: Training Grounds (Interactive Tutorial overlays here)
+  [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,1],
+    [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,1,1,1,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+  ],
+  // Level 2: The Sunken Vault
+  [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,4,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,3,1],
+    [1,1,1,1,0,0,0,0,0,1,0,0,5,0,0,1,0,0,0,0,0,1,1,1,1],
+    [1,0,0,0,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,0,0,0,0,0,1],
+    [1,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1],
+    [1,0,5,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,5,0,1],
+    [1,1,1,1,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,1,1],
+    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+    [1,0,0,0,0,1,1,1,0,0,0,1,1,1,1,0,0,0,1,1,1,0,0,0,1],
+    [1,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0,1],
+    [1,1,1,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,1,1,1],
+    [1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,1,1,0,0,1,0,0,0,0,1],
+    [1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
+    [1,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+  ],
+  // Level 3: Magma Sanctuary
+  [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+    [1,0,3,0,0,0,1,1,0,0,5,0,0,5,0,0,1,1,0,0,0,0,0,0,1],
+    [1,1,1,1,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,1,1,0,0,1],
+    [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+    [1,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1],
+    [1,0,5,0,0,0,0,0,1,1,2,2,2,2,2,1,1,0,0,0,0,0,5,0,1],
+    [1,1,1,1,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,1,1,1,1],
+    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
+    [1,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+  ]
+];
+
+let currentLevel = 0;
+let score = 0;
+let lives = 3;
+let hasTrophy = false;
+let map = [];
+let particles = [];
+let gameState = 'PLAYING'; // PLAYING, VICTORY, GAMEOVER
+
+const player = {
+  x: 48,
+  y: 400,
+  w: 22,
+  h: 28,
+  vx: 0,
+  vy: 0,
+  grounded: false,
+  jumpsLeft: 1,
+  facingRight: true
+};
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
+    tryJump();
+  }
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (['Space', 'ArrowUp', 'KeyW'].includes(e.code) && player.vy < -100) {
+    player.vy *= 0.45; // Variable jump height release cut
+  }
+});
+
+function selectHero(idx) {
+  selectedHeroIndex = idx;
+  document.querySelectorAll('.char-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === idx);
+  });
+}
+
+function initLevel(lvlIndex) {
+  map = JSON.parse(JSON.stringify(LEVEL_DATA[lvlIndex]));
+  hasTrophy = false;
+  player.x = 48;
+  player.y = 390;
+  player.vx = 0;
+  player.vy = 0;
+  updateHud();
+}
+
+function updateHud() {
+  document.getElementById('hud-level').innerText = currentLevel + 1;
+  document.getElementById('hud-score').innerText = score;
+  document.getElementById('hud-lives').innerText = lives;
+  const trophyEl = document.getElementById('hud-trophy');
+  trophyEl.innerText = hasTrophy ? 'YES' : 'NO';
+  trophyEl.style.color = hasTrophy ? '#facc15' : '#ef4444';
+}
+
+function tryJump() {
+  const hero = HEROES[selectedHeroIndex];
+  if (player.grounded) {
+    player.vy = -hero.jumpForce;
+    player.grounded = false;
+    player.jumpsLeft = hero.maxJumps - 1;
+    createPuff(player.x + player.w/2, player.y + player.h, '#94a3b8');
+  } else if (player.jumpsLeft > 0) {
+    player.vy = -hero.jumpForce * 0.9;
+    player.jumpsLeft--;
+    createPuff(player.x + player.w/2, player.y + player.h, '#38bdf8');
+  }
+}
+
+function createPuff(x, y, color) {
+  for (let i = 0; i < 6; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 120,
+      vy: (Math.random() - 0.5) * 60,
+      radius: Math.random() * 3 + 2,
+      color,
+      life: 0.3
+    });
+  }
+}
+
+function createCollectBurst(x, y, color) {
+  for (let i = 0; i < 16; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 220,
+      vy: (Math.random() - 0.5) * 220,
+      radius: Math.random() * 3 + 2,
+      color,
+      life: 0.5
+    });
+  }
+}
+
+function handleDeath() {
+  lives--;
+  updateHud();
+  if (lives <= 0) {
+    gameState = 'GAMEOVER';
+  } else {
+    initLevel(currentLevel);
+  }
+}
+
+// Collisions
+function tileAt(col, row) {
+  if (row < 0 || row >= 15 || col < 0 || col >= 25) return 1;
+  return map[row][col];
+}
+
+function checkTileCollisions(dt) {
+  const hero = HEROES[selectedHeroIndex];
+
+  // Horizontal motion
+  player.x += player.vx * dt;
+  let leftCol = Math.floor(player.x / TILE_SIZE);
+  let rightCol = Math.floor((player.x + player.w) / TILE_SIZE);
+  let topRow = Math.floor(player.y / TILE_SIZE);
+  let bottomRow = Math.floor((player.y + player.h - 0.05) / TILE_SIZE);
+
+  for (let r = topRow; r <= bottomRow; r++) {
+    if (tileAt(leftCol, r) === 1) {
+      player.x = (leftCol + 1) * TILE_SIZE;
+      player.vx = 0;
+      break;
+    }
+    if (tileAt(rightCol, r) === 1) {
+      player.x = rightCol * TILE_SIZE - player.w;
+      player.vx = 0;
+      break;
+    }
+  }
+
+  // Vertical motion
+  player.y += player.vy * dt;
+  leftCol = Math.floor(player.x / TILE_SIZE);
+  rightCol = Math.floor((player.x + player.w - 0.05) / TILE_SIZE);
+  topRow = Math.floor(player.y / TILE_SIZE);
+  bottomRow = Math.floor((player.y + player.h) / TILE_SIZE);
+
+  player.grounded = false;
+
+  for (let c = leftCol; c <= rightCol; c++) {
+    if (player.vy < 0 && tileAt(c, topRow) === 1) {
+      player.y = (topRow + 1) * TILE_SIZE;
+      player.vy = 0;
+      break;
+    }
+    if (player.vy >= 0 && tileAt(c, bottomRow) === 1) {
+      player.y = bottomRow * TILE_SIZE - player.h;
+      player.vy = 0;
+      player.grounded = true;
+      player.jumpsLeft = hero.maxJumps;
+      break;
+    }
+  }
+
+  // Overlap checks for collectibles & hazards
+  const centerC = Math.floor((player.x + player.w/2) / TILE_SIZE);
+  const centerR = Math.floor((player.y + player.h/2) / TILE_SIZE);
+  const curTile = tileAt(centerC, centerR);
+
+  if (curTile === 2) { // Hazard
+    if (!hero.hazardResist) {
+      handleDeath();
+      return;
+    }
+  } else if (curTile === 3) { // Trophy
+    map[centerR][centerC] = 0;
+    hasTrophy = true;
+    score += 1000;
+    createCollectBurst((centerC + 0.5) * TILE_SIZE, (centerR + 0.5) * TILE_SIZE, '#facc15');
+    updateHud();
+  } else if (curTile === 5) { // Ruby
+    map[centerR][centerC] = 0;
+    score += 150;
+    createCollectBurst((centerC + 0.5) * TILE_SIZE, (centerR + 0.5) * TILE_SIZE, '#f43f5e');
+    updateHud();
+  } else if (curTile === 4 && hasTrophy) { // Door complete
+    if (currentLevel < LEVEL_DATA.length - 1) {
+      currentLevel++;
+      initLevel(currentLevel);
+    } else {
+      gameState = 'VICTORY';
+    }
+  }
+}
+
+// Particle update
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// Render routines
+function drawTiles() {
+  for (let r = 0; r < 15; r++) {
+    for (let c = 0; c < 25; c++) {
+      const t = map[r][c];
+      const x = c * TILE_SIZE;
+      const y = r * TILE_SIZE;
+
+      if (t === 1) { // Modern textured brick
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.fillStyle = "#475569";
+        ctx.fillRect(x + 4, y + 4, 10, 8);
+        ctx.fillRect(x + 18, y + 16, 10, 8);
+      } else if (t === 2) { // Spikes / Lava
+        ctx.fillStyle = "#ef4444";
+        for (let s = 0; s < 4; s++) {
+          ctx.beginPath();
+          ctx.moveTo(x + s * 8, y + TILE_SIZE);
+          ctx.lineTo(x + s * 8 + 4, y + 10);
+          ctx.lineTo(x + s * 8 + 8, y + TILE_SIZE);
+          ctx.fill();
+        }
+      } else if (t === 3) { // Classic Trophy Cup
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(x + 10, y + 8, 12, 10);
+        ctx.fillRect(x + 14, y + 18, 4, 6);
+        ctx.fillRect(x + 8, y + 24, 16, 4);
+        // Handles
+        ctx.strokeStyle = "#eab308";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 7, y + 9, 18, 5);
+      } else if (t === 4) { // Exit Door
+        ctx.fillStyle = hasTrophy ? "#22c55e" : "#64748b";
+        ctx.fillRect(x + 6, y + 2, 20, 30);
+        ctx.fillStyle = hasTrophy ? "#15803d" : "#334155";
+        ctx.fillRect(x + 9, y + 5, 14, 24);
+        // Handle
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(x + 12, y + 18, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (t === 5) { // Ruby
+        ctx.fillStyle = "#f43f5e";
+        ctx.beginPath();
+        ctx.moveTo(x + 16, y + 8);
+        ctx.lineTo(x + 24, y + 16);
+        ctx.lineTo(x + 16, y + 24);
+        ctx.lineTo(x + 8, y + 16);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+}
+
+function drawPlayer() {
+  const hero = HEROES[selectedHeroIndex];
+  ctx.save();
+  ctx.translate(player.x, player.y);
+
+  // Body
+  ctx.fillStyle = hero.color;
+  ctx.fillRect(2, 8, player.w - 4, player.h - 10);
+
+  // Face / Cap
+  ctx.fillStyle = "#fde047"; // Skin
+  ctx.fillRect(player.facingRight ? 10 : 4, 3, 10, 8);
+  ctx.fillStyle = hero.hatColor; // Dave Cap
+  ctx.fillRect(2, 0, player.w - 4, 5);
+
+  // Eye
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(player.facingRight ? 16 : 6, 6, 2, 2);
+
+  // Boots
+  ctx.fillStyle = "#334155";
+  ctx.fillRect(2, player.h - 4, 7, 4);
+  ctx.fillRect(player.w - 9, player.h - 4, 7, 4);
+
+  ctx.restore();
+}
+
+function drawTutorial() {
+  if (currentLevel !== 0) return;
+  ctx.save();
+  ctx.font = "600 13px sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.textAlign = "center";
+
+  // Step 1: Move & Jump
+  ctx.fillText("Step 1: Use A / D & SPACE", 140, 310);
+  ctx.fillText("to jump onto platforms", 140, 328);
+
+  // Step 2: Hazards
+  ctx.fillText("Step 2: Avoid Spikes!", 390, 370);
+
+  // Step 3: Trophy & Exit
+  ctx.fillText("Step 3: Grab the Trophy", 680, 290);
+  ctx.fillText("Door opens only when retrieved!", 630, 90);
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Game loop with delta timing
+let lastTime = performance.now();
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  if (gameState === 'PLAYING') {
+    const hero = HEROES[selectedHeroIndex];
+
+    // Horizontal acceleration & drag
+    if (keys['KeyA'] || keys['ArrowLeft']) {
+      player.vx = -hero.speed;
+      player.facingRight = false;
+    } else if (keys['KeyD'] || keys['ArrowRight']) {
+      player.vx = hero.speed;
+      player.facingRight = true;
+    } else {
+      player.vx *= 0.7; // Snappy drag
+      if (Math.abs(player.vx) < 5) player.vx = 0;
+    }
+
+    // Gravity
+    player.vy += GRAVITY * dt;
+    if (player.vy > 600) player.vy = 600; // Terminal fall velocity
+
+    checkTileCollisions(dt);
+    updateParticles(dt);
+  }
+
+  // Draw
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawTiles();
+  drawTutorial();
+  drawParticles();
+  if (gameState === 'PLAYING') drawPlayer();
+
+  if (gameState === 'GAMEOVER') {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ef4444";
+    ctx.font = "bold 36px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = "16px sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText("Press F5 to Restart Your Journey", canvas.width / 2, canvas.height / 2 + 20);
+  } else if (gameState === 'VICTORY') {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#22c55e";
+    ctx.font = "bold 36px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("CONGRATULATIONS!", canvas.width / 2, canvas.height / 2 - 30);
+    ctx.fillStyle = "#facc15";
+    ctx.font = "20px sans-serif";
+    ctx.fillText("All levels cleared! Final Score: " + score, canvas.width / 2, canvas.height / 2 + 10);
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Start
+initLevel(0);
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
